@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from collections import Counter
-from dataclasses import dataclass
 import argparse
 import json
 import math
-from pathlib import Path
 import re
+from collections import Counter
+from dataclasses import dataclass
+from pathlib import Path
 
 TOKEN = re.compile(r"[a-zA-Z][a-zA-Z0-9+#.-]{1,}")
 STOP = {"and", "the", "with", "for", "from", "that", "this", "into", "are", "you", "our"}
@@ -42,6 +42,10 @@ class MatchResult:
 
 
 def match_job(requirements: list[str], evidence: list[str]) -> MatchResult:
+    if any(not item.strip() for item in requirements):
+        raise ValueError("requirements cannot contain blank items")
+    if any(not item.strip() for item in evidence):
+        raise ValueError("evidence cannot contain blank items")
     matches: list[RequirementMatch] = []
     for requirement in requirements:
         ranked = sorted(((_cosine(requirement, item), item) for item in evidence), reverse=True)
@@ -61,12 +65,24 @@ def markdown_report(role: str, company: str, result: MatchResult) -> str:
     return "\n".join(rows)
 
 
+def load_job(path: Path) -> dict[str, object]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    required = {"role", "company", "requirements", "evidence"}
+    if set(data) != required:
+        missing = required - set(data)
+        extra = set(data) - required
+        raise ValueError(f"invalid input keys; missing={sorted(missing)}, extra={sorted(extra)}")
+    if not isinstance(data["requirements"], list) or not isinstance(data["evidence"], list):
+        raise TypeError("requirements and evidence must be lists")
+    return data
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Map verified experience to job requirements")
     parser.add_argument("input", type=Path)
     parser.add_argument("--output", type=Path, default=Path("job-fit.md"))
     args = parser.parse_args()
-    data = json.loads(args.input.read_text(encoding="utf-8"))
+    data = load_job(args.input)
     result = match_job(data["requirements"], data["evidence"])
     args.output.write_text(markdown_report(data["role"], data["company"], result), encoding="utf-8")
     print(f"{result.score}% fit; report written to {args.output}")
@@ -74,4 +90,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
